@@ -96,14 +96,102 @@ tutorialBody :=
   ];
 
 (*  Placeholder bodies (TODO)  *)
-playBody :=
-  Pane[
-    Column[{
-      Style["Chapter 1: The Sunken Chest", 20, Bold, accentColor],
-      Style["LOREM IPSUM", 14, textColor]
-    }, Spacings -> 1.5],
-    {540, 270}
+(* ---------- Level 1: Python vs Mathematica quiz ---------- *)
+(* Edit this list to curate questions. "answer" is the position of the correct choice. *)
+level1Questions = {
+  <|"q" -> "In Python you call a function like sin(x). How do you call the sine function in the Wolfram Language?",
+    "choices" -> {"sin(x)", "Sin(x)", "Sin[x]", "sin[x]"},
+    "answer" -> 3,
+    "explain" -> "Functions use square brackets, and built-in names are capitalised. Parentheses are only for grouping."|>,
+
+  <|"q" -> "In Python, evaluating y + 2 when y was never defined raises a NameError. In Mathematica, with y undefined, what does y + 2 give?",
+    "choices" -> {"An error, since y is not defined", "0", "2", "2 + y, kept as a symbolic expression"},
+    "answer" -> 4,
+    "explain" -> "Mathematica is a symbolic language. An undefined name is just a symbol, so the expression stays unevaluated and can be manipulated later."|>,
+
+  <|"q" -> "Given lst = {10, 20, 30}, which expression returns the first element (10)?",
+    "choices" -> {"lst[0]", "lst[[1]]", "lst(1)", "lst{1}"},
+    "answer" -> 2,
+    "explain" -> "Indexing uses double square brackets and starts at 1, not 0. Note that lst[[0]] returns the head of the expression, which is List."|>,
+
+  <|"q" -> "Which line defines a function that squares any argument, like Python's def f(x): return x**2?",
+    "choices" -> {"def f[x]: x^2", "f[x] := x^2", "f[x_] := x^2", "f(x_) = x^2"},
+    "answer" -> 3,
+    "explain" -> "The underscore in x_ is a pattern meaning 'any argument'. f[x] := x^2 would only define the rule for the literal symbol x."|>,
+
+  <|"q" -> "Which is closest to Python's list comprehension [f(x) for x in lst]?",
+    "choices" -> {"Map[f, lst]", "Apply[f, lst]", "f[[lst]]", "Do[f, lst]"},
+    "answer" -> 1,
+    "explain" -> "Map applies f to each element (shorthand: f /@ lst). Apply replaces the head instead, so f @@ {1,2,3} becomes f[1,2,3]."|>,
+
+  <|"q" -> "In Python, 1/3 gives 0.3333333333333333. What does 1/3 give in Mathematica?",
+    "choices" -> {"0.333333", "0.3333333333333333", "1/3, an exact rational number", "An error: integer division"},
+    "answer" -> 3,
+    "explain" -> "Mathematica keeps exact arithmetic by default. Use N[1/3] when you want a decimal approximation."|>,
+
+  <|"q" -> "Which expression joins two strings in Mathematica?",
+    "choices" -> {"\"abc\" + \"def\"", "\"abc\" <> \"def\"", "\"abc\" . \"def\"", "\"abc\" & \"def\""},
+    "answer" -> 2,
+    "explain" -> "<> is shorthand for StringJoin. Using + on strings does not concatenate them."|>,
+
+  <|"q" -> "What is the underlying form of the expression x + y in Mathematica?",
+    "choices" -> {"Plus[x, y]: everything is an expression of the form head[arguments]", "A string that is re-parsed each time", "A machine-precision float", "Nothing, since operators are not expressions"},
+    "answer" -> 1,
+    "explain" -> "Everything is an expression with a head and arguments. FullForm[x + y] shows Plus[x, y]. This uniform structure is what makes pattern matching and symbolic manipulation possible."|>,
+
+  <|"q" -> "How does running code in a Mathematica notebook differ from running a Python script?",
+    "choices" -> {"Cells always run top to bottom", "Each cell is a separate program with its own variables", "Code must be saved to a file before running", "Cells run one at a time, in any order, sharing one kernel session"},
+    "answer" -> 4,
+    "explain" -> "All cells share one kernel, so results depend on the order you evaluate them in. This is a common source of confusing bugs for newcomers."|>,
+
+  <|"q" -> "Which is the Mathematica equivalent of Python's lambda x: x**2?",
+    "choices" -> {"lambda[x]: x^2", "#^2 &", "x -> x^2", "(x) => x^2"},
+    "answer" -> 2,
+    "explain" -> "# is the argument slot and & marks the end of a pure function. x -> x^2 is a replacement rule, not a function. Also, ^ means power in Mathematica, whereas in Python it is XOR."|>
+};
+
+(* ---------- Quiz engine (reusable for any question list) ---------- *)
+quizBody[questions_List] :=
+  DynamicModule[{i = 1, picked = None, score = 0, n = Length[questions]},
+    Pane[
+      Dynamic@If[i > n,
+        Column[{
+          Style["Level complete!", 24, Bold],
+          Style["Score: " <> ToString[score] <> " / " <> ToString[n], 18],
+          Button["Try again", (i = 1; picked = None; score = 0)]
+        }, Spacings -> 1.5],
+        With[{qq = questions[[i]]},
+          Column[{
+            Style["Question " <> ToString[i] <> " of " <> ToString[n], 12],
+            Pane[Style[qq["q"], 16, Bold], 520],
+            Column[
+              Table[
+                With[{k = k},
+                  Button[Pane[qq["choices"][[k]], 480],
+                    (picked = k; If[k == qq["answer"], score++]),
+                    ImageSize -> {520, Automatic},
+                    Enabled -> (picked === None)]
+                ],
+                {k, Length[qq["choices"]]}
+              ],
+              Spacings -> 0.5],
+            If[picked =!= None,
+              Column[{
+                Style[If[picked == qq["answer"], "Correct!",
+                  "Not quite. The answer was: " <> qq["choices"][[qq["answer"]]]], Bold],
+                Pane[qq["explain"], 520],
+                Button[If[i == n, "See results", "Next question"], (i++; picked = None)]
+              }, Spacings -> 1],
+              ""]
+          }, Spacings -> 1.2]
+        ]
+      ],
+      {560, 330},
+      Scrollbars -> {False, Automatic}
+    ]
   ];
+
+playBody := quizBody[level1Questions];
 
 optionsBody :=
   Pane[
