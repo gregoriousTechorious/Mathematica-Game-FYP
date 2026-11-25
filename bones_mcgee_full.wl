@@ -1,3 +1,5 @@
+(* ::Package:: *)
+
 (* Bones Mcgee Learns Mathematica - Main Menu - Wolfram Language *)
 
 (* Settings *)
@@ -124,12 +126,14 @@ c1NewGame[] := (c1State = <|
     "phase" -> "intro", "stage" -> 1,
     "pmax" -> 40, "php" -> 40, "bonus" -> 0, "potions" -> 2, "gold" -> 0,
     "cd" -> 0, "guarding" -> False, "eDefending" -> False, "lastGold" -> 0,
+    "busy" -> False, "pending" -> "", "picked" -> None, "asked" -> <||>,
+    "question" -> <|"q" -> "", "choices" -> {}, "answer" -> 1, "explain" -> ""|>,
     "log" -> {}, "ehp" -> 1, "emax" -> 1,
     "enemy" -> <|"name" -> "", "hp" -> 1, "gold" -> 0, "moves" -> {}|>,
     "intent" -> <|"name" -> "", "type" -> "attack", "dmg" -> {1, 1}|>|>;);
 c1NewGame[];
 
-c1Log[msg_String] := (c1State["log"] = Take[Append[c1State["log"], msg], -UpTo[4]]);
+c1Log[msg_String] := (c1State["log"] = With[{l = Append[c1State["log"], msg]}, Drop[l, Max[0, Length[l] - 4]]]);
 
 c1PickIntent[] := (c1State["intent"] = RandomChoice[c1State["enemy"]["moves"]]);
 
@@ -145,7 +149,67 @@ c1StartFight[] := With[{e = c1Enemies[[c1State["stage"]]]},
   c1PickIntent[]];
 
 (* ---------- Learning hook: later, make this ask a Mathematica question ---------- *)
-c1Gate[_] := True;
+(* ---------- Question pools: one list per move ---------- *)
+(* An empty list {} means that move needs no question yet.            *)
+(* "answer" is the position (1-based) of the correct choice.          *)
+(* Choices are shuffled automatically when a question is asked.       *)
+c1Questions = <|
+  "slash" -> {
+    <|"q" -> "Which kind of brackets does Mathematica use to call a function?",
+      "choices" -> {"Round, like Sin(x)", "Square, like Sin[x]", "Curly, like Sin{x}", "Angle, like Sin<x>"},
+      "answer" -> 2,
+      "explain" -> "Function calls use square brackets. Round brackets are only for grouping, and curly braces make lists."|>,
+    <|"q" -> "What does Length[{4, 8, 15, 16}] return?",
+      "choices" -> {"3", "4", "16", "43"},
+      "answer" -> 2,
+      "explain" -> "Length counts the elements of a list, and this list has four."|>,
+    <|"q" -> "Given lst = {10, 20, 30}, how do you get the first element?",
+      "choices" -> {"lst[[1]]", "lst[[0]]", "lst(1)", "lst.first"},
+      "answer" -> 1,
+      "explain" -> "Indexing uses double square brackets and starts at 1, not 0."|>,
+    <|"q" -> "What does 2^3 evaluate to?",
+      "choices" -> {"6", "8", "9", "5"},
+      "answer" -> 2,
+      "explain" -> "The ^ symbol means power, so 2^3 is 2 times 2 times 2, which is 8."|>,
+    <|"q" -> "Which of these creates a list?",
+      "choices" -> {"{1, 2, 3}", "(1, 2, 3)", "[1, 2, 3]", "<1, 2, 3>"},
+      "answer" -> 1,
+      "explain" -> "Curly braces make lists. Round brackets only group things, and square brackets call functions."|>,
+    <|"q" -> "What does 1/3 give in Mathematica?",
+      "choices" -> {"0.333333", "The exact fraction 1/3", "0", "An error"},
+      "answer" -> 2,
+      "explain" -> "Mathematica keeps exact arithmetic by default. Use N[1/3] if you want a decimal."|>,
+    <|"q" -> "Which function gives a decimal approximation of Pi?",
+      "choices" -> {"N[Pi]", "Decimal[Pi]", "Float[Pi]", "Approx[Pi]"},
+      "answer" -> 1,
+      "explain" -> "N converts exact values into approximate numbers. N[Pi] gives 3.14159."|>,
+    <|"q" -> "Which key combination evaluates a cell in a notebook?",
+      "choices" -> {"Enter", "Shift+Enter", "Ctrl+S", "Tab"},
+      "answer" -> 2,
+      "explain" -> "Shift+Enter evaluates the cell. Plain Enter just starts a new line."|>,
+    <|"q" -> "What does Range[5] return?",
+      "choices" -> {"{0, 1, 2, 3, 4}", "{1, 2, 3, 4, 5}", "{1, 2, 3, 4}", "5"},
+      "answer" -> 2,
+      "explain" -> "Range[n] gives the whole numbers from 1 up to n."|>,
+    <|"q" -> "How do built-in Mathematica function names look?",
+      "choices" -> {"All lowercase", "Capitalised, like Sqrt and Plot", "ALL CAPS", "Any case works"},
+      "answer" -> 2,
+      "explain" -> "Built-in names start with a capital letter, and the language is case sensitive."|>,
+    <|"q" -> "What does Sqrt[2] give in Mathematica?",
+      "choices" -> {"1.41421", "Sqrt[2], kept exact", "1", "An error"},
+      "answer" -> 2,
+      "explain" -> "Exact values stay symbolic. Use N[Sqrt[2]] to get 1.41421."|>,
+    <|"q" -> "Which operator joins two strings together?",
+      "choices" -> {"+", "<>", "&", "."},
+      "answer" -> 2,
+      "explain" -> "<> is shorthand for StringJoin, so \"ab\" <> \"cd\" gives \"abcd\"."|>,
+    <|"q" -> "What does {1, 2, 3} + 10 give?",
+      "choices" -> {"{11, 12, 13}", "{1, 2, 3, 10}", "An error", "16"},
+      "answer" -> 1,
+      "explain" -> "Arithmetic on a list is applied to every element, so each one gets 10 added."|>},
+  "cannon" -> {},
+  "guard" -> {},
+  "rum" -> {}|>;
 
 (* ---------- Player actions ---------- *)
 c1CanAct["cannon"] := c1State["cd"] == 0;
@@ -167,14 +231,53 @@ c1Effect["rum"] := Module[{h},
   c1Log["Bones swigs rum and heals " <> ToString[h] <> " HP."]];
 
 c1Resolve[action_String, success_] := (
+  c1State["busy"] = True;
   If[action =!= "cannon", c1State["cd"] = Max[0, c1State["cd"] - 1]];
   c1State["guarding"] = False;
-  If[TrueQ[success], c1Effect[action], c1Log["Bones fumbles and loses his turn!"]];
+  If[TrueQ[success],
+    c1Effect[action],
+    c1Log["Wrong answer! Bones fumbles his " <> action <> " and loses his turn!"]];
   c1State["eDefending"] = False;
-  If[c1State["ehp"] <= 0, c1Victory[], c1EnemyTurn[]]);
+  Pause[0.9];   (* delay between your move and the enemy's move *)
+  If[c1State["ehp"] <= 0, c1Victory[], c1EnemyTurn[]];
+  c1State["busy"] = False);
 
-c1PlayerAct[action_String] /; c1State["phase"] === "battle" && c1CanAct[action] :=
-  c1Resolve[action, c1Gate[action]];
+(* Picks a random question from a move's pool, without repeats until the pool runs out *)
+c1NextQuestion[move_String] := Module[
+  {pool = Lookup[c1Questions, move, {}], used = Lookup[c1State["asked"], move, {}], avail, idx},
+  avail = Complement[Range[Length[pool]], used];
+  If[avail === {}, used = {}; avail = Range[Length[pool]]];
+  idx = RandomChoice[avail];
+  c1State["asked"] = Append[c1State["asked"], move -> Append[used, idx]];
+  pool[[idx]]];
+
+c1AskQuestion[action_String] := Module[{q = c1NextQuestion[action], perm},
+  perm = RandomSample[Range[Length[q["choices"]]]];
+  c1State["question"] = <|
+    "q" -> q["q"],
+    "choices" -> q["choices"][[perm]],
+    "answer" -> FirstPosition[perm, q["answer"]][[1]],
+    "explain" -> q["explain"]|>;
+  c1State["pending"] = action;
+  c1State["picked"] = None;
+  c1State["phase"] = "question"];
+
+c1Pick[k_Integer] /; c1State["phase"] === "question" && c1State["picked"] === None :=
+  (c1State["picked"] = k);
+
+c1QuestionDone[] /; c1State["phase"] === "question" && c1State["picked"] =!= None :=
+  Module[{act = c1State["pending"], ok},
+    ok = (c1State["picked"] === c1State["question"]["answer"]);
+    c1State["busy"] = True;
+    c1State["phase"] = "battle";
+    c1Resolve[act, ok]];
+
+(* Clicking a move: if it has a question pool, ask a question first; otherwise just do it *)
+ClearAll[c1PlayerAct];
+c1PlayerAct[action_String] /; c1State["phase"] === "battle" && ! TrueQ[c1State["busy"]] && c1CanAct[action] :=
+  If[Lookup[c1Questions, action, {}] === {},
+    c1Resolve[action, True],
+    c1AskQuestion[action]];
 
 (* ---------- Enemy turn ---------- *)
 c1EnemyTurn[] := Module[{m = c1State["intent"], en = c1State["enemy"]["name"],
@@ -226,21 +329,25 @@ c1Upgrade[kind_String] := (
   c1StartFight[]);
 
 (* ---------- UI pieces ---------- *)
+c1BtnFace[label_, en_, hov_, w_, h_] := Framed[
+  Style[label, 14, Bold, If[en, White, GrayLevel[0.6]]],
+  Background -> Which[! en, GrayLevel[0.3], hov, btnHover, True, btnColor],
+  FrameStyle -> Directive[Thickness[2], If[en, btnFrame, GrayLevel[0.45]]],
+  RoundingRadius -> 8,
+  ImageSize -> {w, h},
+  Alignment -> Center,
+  FrameMargins -> 0];
+
+ClearAll[c1Btn];
 SetAttributes[c1Btn, HoldRest];
-c1Btn[label_, action_, enabled_: True, w_: 130] :=
-  DynamicModule[{hover = False},
-    EventHandler[
-      Dynamic@Framed[
-        Style[label, 14, Bold, If[enabled, White, GrayLevel[0.6]]],
-        Background -> Which[! enabled, GrayLevel[0.3], hover, btnHover, True, btnColor],
-        FrameStyle -> Directive[Thickness[2], If[enabled, btnFrame, GrayLevel[0.45]]],
-        RoundingRadius -> 8,
-        ImageSize -> {w, 34},
-        Alignment -> Center,
-        FrameMargins -> 0],
-      {"MouseEntered" :> (hover = True),
-       "MouseExited" :> (hover = False),
-       "MouseClicked" :> If[enabled, action]}]];
+c1Btn[label_, action_, enabled_: True, w_: 130, h_: 34] :=
+  With[{en = TrueQ[enabled]},
+    Button[
+      Mouseover[c1BtnFace[label, en, False, w, h], c1BtnFace[label, en, True, w, h]],
+      action,
+      Appearance -> "Frameless",
+      Method -> "Queued",   (* lets the screen update during the delays *)
+      Enabled -> en]];
 
 c1HPBar[cur_, max_, w_: 140] := With[{f = N@Clip[cur/max, {0, 1}]},
   Graphics[{
@@ -311,7 +418,7 @@ c1IntroView[] := Column[{
     Style["Skeleton Cove", 30, Bold, accentColor],
     Pane[Style["Bones McGee has washed up on Skeleton Cove with an empty purse and a rumbling skull. Rumour says Captain Rotbeard hoards the island's treasure. Fight your way across the beach to reach him!", 14, textColor], 520],
     Column[{
-      Style["\[Bullet] Slash: reliable damage.", 12, textColor],
+      Style["\[Bullet] Slash: answer a question correctly to land a reliable hit.", 12, textColor],
       Style["\[Bullet] Cannon: huge damage, then a 3-turn cooldown.", 12, textColor],
       Style["\[Bullet] Guard: take 75% less damage, and riposte heavy attacks.", 12, textColor],
       Style["\[Bullet] Rum: heal 15 HP (limited supply).", 12, textColor],
@@ -351,11 +458,15 @@ c1BattleView[] := Module[{e = c1State["enemy"], i = c1State["intent"], cd = c1St
       Background -> Darker[bgColor, 0.4], FrameStyle -> Directive[Thickness[1], btnFrame],
       RoundingRadius -> 6],
     Row[{
-      Tooltip[c1Btn["Slash", c1PlayerAct["slash"]], "5-8 damage"],
-      Tooltip[c1Btn[If[cd > 0, "Cannon (" <> ToString[cd] <> ")", "Cannon"], c1PlayerAct["cannon"], c1State["cd"] == 0],
+      Tooltip[c1Btn["Slash", c1PlayerAct["slash"], ! c1State["busy"]],
+        "Answer a question correctly to deal 5-8 damage"],
+      Tooltip[c1Btn[If[cd > 0, "Cannon (" <> ToString[cd] <> ")", "Cannon"], c1PlayerAct["cannon"],
+          c1State["cd"] == 0 && ! c1State["busy"]],
         "13-17 damage, 3-turn cooldown"],
-      Tooltip[c1Btn["Guard", c1PlayerAct["guard"]], "Take 75% less damage this turn. Riposte heavy attacks."],
-      Tooltip[c1Btn["Rum (" <> ToString[c1State["potions"]] <> ")", c1PlayerAct["rum"], c1State["potions"] > 0],
+      Tooltip[c1Btn["Guard", c1PlayerAct["guard"], ! c1State["busy"]],
+        "Take 75% less damage this turn. Riposte heavy attacks."],
+      Tooltip[c1Btn["Rum (" <> ToString[c1State["potions"]] <> ")", c1PlayerAct["rum"],
+          c1State["potions"] > 0 && ! c1State["busy"]],
         "Heal 15 HP"]
     }, Spacer[8]]
   }, Alignment -> Center, Spacings -> 0.7]];
@@ -384,9 +495,33 @@ c1LostView[] := Column[{
     c1Btn["Set sail again", (c1NewGame[]; c1StartFight[]), True, 200]
   }, Alignment -> Center, Spacings -> 1.3];
 
+c1QuestionView[] := Module[{qq = c1State["question"], picked = c1State["picked"]},
+  Pane[
+    Column[{
+      Style["Answer correctly to land your " <> c1State["pending"] <> "!", 13, accentColor],
+      Pane[Style[qq["q"], 16, Bold, titleColor], 540],
+      If[picked === None,
+        Column[
+          Table[
+            With[{kk = k}, c1Btn[qq["choices"][[kk]], c1Pick[kk], True, 540, 30]],
+            {k, Length[qq["choices"]]}],
+          Spacings -> 0.5],
+        Column[{
+          Style[
+            If[picked === qq["answer"],
+              "Correct! Your move lands.",
+              "Not quite! The answer was: " <> qq["choices"][[qq["answer"]]]],
+            14, Bold, If[picked === qq["answer"], palmGreen, RGBColor[1, 0.35, 0.3]]],
+          Pane[Style[qq["explain"], 13, textColor], 540],
+          c1Btn["Continue", c1QuestionDone[], True, 200]},
+         Alignment -> Center, Spacings -> 1]]
+    }, Alignment -> Center, Spacings -> 1.2],
+    {560, 340}, Scrollbars -> {False, Automatic}, Alignment -> Center]];
+
 c1View[] := Switch[c1State["phase"],
   "intro", c1IntroView[],
   "battle", c1BattleView[],
+  "question", c1QuestionView[],
   "reward", c1RewardView[],
   "won", c1WonView[],
   "lost", c1LostView[],
