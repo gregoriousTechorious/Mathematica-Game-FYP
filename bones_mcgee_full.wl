@@ -19,6 +19,208 @@ titleColor    = RGBColor[0.98, 0.93, 0.75];   (* sand *)
 textColor     = RGBColor[0.85, 0.95, 0.9];    (* sea foam *)
 palmGreen     = RGBColor[0.35, 0.8, 0.5];
 
+(* ====================================================================== *)
+(* Scenery: palm beach at sunset, drawn purely with line/shape primitives *)
+(* Scene coordinates: x 0-640, y 0-600 (y goes UP), horizon at y = 250    *)
+(* ====================================================================== *)
+
+(* ---------- Tweakables ---------- *)
+scnHorizon = 250;
+scnSunPos  = {470, 300};
+scnDimOpacity = 0.7;     (* darkness of the card behind Play/Tutorial/Options screens *)
+gullPeriod = 10;         (* seconds between seagull flybys *)
+gullFlight = 6;          (* seconds the gull takes to cross the screen *)
+gullDelay  = 3;          (* seconds after launch before the first flyby *)
+gullT0     = AbsoluteTime[];
+
+(* ---------- Sky: stacked bands, purple at the top to gold at the horizon ---------- *)
+scnSky = Table[
+  {Blend[{{0, RGBColor[1, 0.82, 0.38]},
+          {0.25, RGBColor[0.98, 0.5, 0.3]},
+          {0.55, RGBColor[0.55, 0.22, 0.4]},
+          {1, RGBColor[0.12, 0.07, 0.28]}},
+     Clip[(y - scnHorizon)/(600 - scnHorizon), {0, 1}]],
+   Rectangle[{0, y}, {640, y + 6}]},
+  {y, scnHorizon, 595, 5}];
+
+(* ---------- Stars (fixed positions thanks to the seed) ---------- *)
+scnStars = BlockRandom[SeedRandom[11];
+  {White, Opacity[0.8], PointSize[0.004],
+   Point[Table[{RandomReal[{0, 640}], RandomReal[{470, 598}]}, 28]]}];
+
+(* ---------- Clouds ---------- *)
+scnCloud[{x_, y_}, s_] := {
+  RGBColor[0.62, 0.3, 0.45], Disk[{x, y - 4 s}, {42 s, 10 s}],
+  RGBColor[0.95, 0.6, 0.55],
+  Disk[{x, y}, {42 s, 10 s}],
+  Disk[{x + 26 s, y + 8 s}, {28 s, 9 s}],
+  Disk[{x - 30 s, y + 6 s}, {26 s, 8 s}]};
+scnClouds = {scnCloud[{70, 430}, 1], scnCloud[{570, 455}, 1.1],
+  scnCloud[{505, 372}, 0.8], scnCloud[{40, 335}, 0.7]};
+
+(* ---------- Sun: soft glow rings plus the disc ---------- *)
+scnSun = {
+  Table[{RGBColor[1, 0.85, 0.4], Opacity[0.07], Disk[scnSunPos, r]}, {r, 150, 70, -10}],
+  RGBColor[1, 0.93, 0.55], Disk[scnSunPos, 56]};
+
+(* ---------- Sea: bands from sunset orange at the horizon to deep teal ---------- *)
+scnSea = Table[
+  {Blend[{{0, RGBColor[0.97, 0.58, 0.4]},
+          {0.18, RGBColor[0.25, 0.5, 0.6]},
+          {1, RGBColor[0.02, 0.26, 0.33]}},
+     Clip[(scnHorizon - y)/165, {0, 1}]],
+   Rectangle[{0, y}, {640, y + 6}]},
+  {y, scnHorizon - 5, 85, -5}];
+
+(* ---------- Sun glitter on the water ---------- *)
+scnGlint = {RGBColor[1, 0.88, 0.45], Opacity[0.55], CapForm["Round"],
+  Table[
+   With[{hw = 58 - 4.5 k + 6 Sin[1.7 k], cx = scnSunPos[[1]] + 5 Cos[2.1 k]},
+    {Thickness[0.0025 + 0.0004 k],
+     Line[{{cx - hw, scnHorizon - 12 k}, {cx + hw, scnHorizon - 12 k}}]}],
+   {k, 1, 9}]};
+
+(* ---------- Distant ship silhouette (little local coords, then placed) ---------- *)
+scnShip = With[{f = {150 + 0.75 #[[1]], scnHorizon + 0.75 #[[2]]} &},
+  {RGBColor[0.14, 0.07, 0.2],
+   Polygon[f /@ {{-24, 0}, {24, 0}, {16, -10}, {-16, -10}}],
+   Thickness[0.003], Line[f /@ {{0, 0}, {0, 42}}],
+   Polygon[f /@ {{2, 40}, {2, 6}, {26, 6}}],
+   Polygon[f /@ {{-2, 34}, {-2, 8}, {-20, 8}}],
+   Polygon[f /@ {{0, 42}, {12, 39}, {0, 36}}]}];
+
+(* ---------- Waves: little sine squiggles ---------- *)
+scnWave[x0_, y0_] := Line[Table[{x, y0 + 2.5 Sin[(x - x0)/6.]}, {x, x0, x0 + 38, 4}]];
+scnWaves = BlockRandom[SeedRandom[3];
+  {RGBColor[0.9, 0.97, 0.9], Opacity[0.4], Thickness[0.003], CapForm["Round"],
+   Table[scnWave[x0 + RandomReal[{-15, 15}] + 45 Mod[i, 2], 235 - 22 i],
+    {i, 0, 6}, {x0, 0, 640, 90}]}];
+
+(* ---------- Sand, wet-sand line, foam line, specks ---------- *)
+scnSandY[x_] := 98 + 9 Sin[x/70.] + 4 Sin[x/23. + 1];
+scnSpecks = BlockRandom[SeedRandom[5];
+  {RGBColor[0.74, 0.57, 0.34], PointSize[0.004],
+   Point[Table[{RandomReal[{0, 640}], RandomReal[{3, 78}]}, 70]]}];
+scnSand = {
+  {RGBColor[0.93, 0.78, 0.5],
+   Polygon[Join[{{0, 0}}, Table[{x, scnSandY[x]}, {x, 0, 640, 8}], {{640, 0}}]]},
+  {RGBColor[0.8, 0.62, 0.4], Thickness[0.004],
+   Line[Table[{x, scnSandY[x] - 7}, {x, 0, 640, 8}]]},
+  {White, Opacity[0.75], Thickness[0.005], CapForm["Round"], Dashing[{0.03, 0.015}],
+   Line[Table[{x, scnSandY[x] + 5 + 3 Sin[x/15.]}, {x, 0, 640, 8}]]},
+  scnSpecks};
+
+(* ---------- Palm trees ---------- *)
+scnTt = Range[0, 1, 0.05];
+scnSs = Range[0, 1, 0.1];
+
+(* Curved, tapering trunk with a few ring marks *)
+scnTrunk[b_, c_, tp_, w0_, w1_] := Module[{pts, ders, nrm, ws, l, r},
+  pts  = Table[(1 - t)^2 b + 2 (1 - t) t c + t^2 tp, {t, scnTt}];
+  ders = Table[2 (1 - t) (c - b) + 2 t (tp - c), {t, scnTt}];
+  nrm  = {-#[[2]], #[[1]]}/Norm[#] & /@ ders;
+  ws   = Table[(w0 + (w1 - w0) t)/2, {t, scnTt}];
+  l = pts + ws nrm;
+  r = pts - ws nrm;
+  {RGBColor[0.24, 0.13, 0.08], Polygon[Join[l, Reverse[r]]],
+   RGBColor[0.12, 0.06, 0.04], Thickness[0.0025],
+   Table[Line[{l[[i]], r[[i]]}], {i, 3, 19, 3}]}];
+
+(* One drooping, leaf-shaped frond *)
+scnFrond[top_, ang_, len_, droop_, wid_] := Module[{pts, ders, nrm, ws},
+  pts  = Table[top + len s {Cos[ang], Sin[ang]} - {0, droop len s^2}, {s, scnSs}];
+  ders = Table[len {Cos[ang], Sin[ang]} - {0, 2 droop len s}, {s, scnSs}];
+  nrm  = {-#[[2]], #[[1]]}/Norm[#] & /@ ders;
+  ws   = Table[wid Sin[Pi s^0.6], {s, scnSs}];
+  Polygon[Join[pts + ws nrm, Reverse[pts - ws nrm]]]];
+
+(* {angle in degrees, length, droop, half-width} *)
+scnFrondSpec = {{175, 85, 0.55, 6}, {150, 95, 0.5, 7}, {122, 80, 0.4, 6.5},
+  {95, 58, 0.3, 6}, {65, 80, 0.4, 6.5}, {32, 95, 0.5, 7}, {5, 85, 0.55, 6}};
+
+scnPalm[base_, ctrl_, top_, sc_] := {
+  scnTrunk[base, ctrl, top, 11 sc, 6 sc],
+  MapIndexed[
+   {If[OddQ[#2[[1]]], RGBColor[0.03, 0.2, 0.17], RGBColor[0.06, 0.32, 0.24]],
+     scnFrond[top, #1[[1]] Degree, #1[[2]] sc, #1[[3]], #1[[4]] sc]} &,
+   scnFrondSpec],
+  {RGBColor[0.25, 0.14, 0.08],
+   Disk[top + {-5 sc, -7 sc}, 4.5 sc], Disk[top + {5 sc, -7 sc}, 4.5 sc],
+   Disk[top + {0, -11 sc}, 4.5 sc]}};
+
+scnPalms = {
+  scnPalm[{128, 78}, {140, 130}, {150, 195}, 0.7],
+  scnPalm[{525, 82}, {515, 140}, {505, 190}, 0.7],
+  scnPalm[{55, 60}, {38, 150}, {70, 252}, 1.1],
+  scnPalm[{592, 55}, {612, 160}, {552, 268}, 1.15]};
+
+(* ---------- Beach details: rocks, shells, and a treasure X ---------- *)
+scnRock[{x_, y_}, s_] := {
+  RGBColor[0.36, 0.29, 0.3],
+  Polygon[{x, y} + s # & /@ {{-14, 0}, {-10, 9}, {-2, 13}, {8, 10}, {15, 0}}],
+  RGBColor[0.52, 0.43, 0.42],
+  Polygon[{x, y} + s # & /@ {{-6, 4}, {-2, 10}, {3, 9}, {-1, 5}}]};
+
+scnShell[{x_, y_}] := {
+  RGBColor[0.98, 0.84, 0.8], Disk[{x, y}, 11, {0, Pi}],
+  RGBColor[0.8, 0.55, 0.5], Thickness[0.002],
+  Table[Line[{{x, y}, {x + 11 Cos[a], y + 11 Sin[a]}}], {a, Pi/6, 5 Pi/6, Pi/6}]};
+
+scnBeach = {
+  scnRock[{250, 24}, 1], scnRock[{268, 20}, 0.6], scnRock[{565, 28}, 1.2],
+  scnShell[{180, 46}], scnShell[{415, 22}], scnShell[{505, 55}],
+  {RGBColor[0.75, 0.12, 0.1], CapForm["Round"], Thickness[0.007],
+   Line[{{322, 30}, {338, 46}}], Line[{{322, 46}, {338, 30}}]}};
+
+(* ---------- Dark card that sits behind the Play / Tutorial / Options screens ---------- *)
+scnCard = {
+  FaceForm[{Opacity[scnDimOpacity], RGBColor[0.02, 0.13, 0.19]}],
+  EdgeForm[{Thickness[0.003], accentColor}],
+  Rectangle[{14, 12}, {626, 588}, RoundingRadius -> 18]};
+
+(* ---------- Seagull (animated) ---------- *)
+scnGullWings[f_] := {{-26, 10 f - 3}, {-13, 6 f + 3}, {0, 1}, {13, 6 f + 3}, {26, 10 f - 3}};
+
+scnGullShape[f_] := {
+  (* dark outline so the wings read against any sky colour *)
+  {RGBColor[0.15, 0.08, 0.25], Opacity[0.45], CapForm["Round"], Thickness[0.0105],
+   BSplineCurve[scnGullWings[f]]},
+  {White, CapForm["Round"], Thickness[0.006], BSplineCurve[scnGullWings[f]]},
+  {White, Disk[{0, -1}, {8, 3.5}], Disk[{8, 1.5}, 3],
+   Polygon[{{-7, -1}, {-15, 2}, {-15, -4}}],
+   RGBColor[1, 0.75, 0.15], Polygon[{{10.5, 2.5}, {15, 1.2}, {10.5, 0.5}}]}};
+
+(* Returns the gull's primitives for the current moment, or {} when it's not flying *)
+scnGull[] := Module[{ph, u, x, y, ang, f},
+  ph = Mod[AbsoluteTime[] - gullT0 - gullDelay, gullPeriod];
+  If[ph > gullFlight,
+   {},
+   u = ph/gullFlight;
+   x = -40 + 720 u;
+   y = 540 + 25 Sin[3 Pi u];                       (* gentle sine-wave path *)
+   ang = ArcTan[720, 75 Pi Cos[3 Pi u]];           (* tilt along the path *)
+   f = Sin[2 Pi 2.5 ph];                           (* wing flap *)
+   GeometricTransformation[
+    GeometricTransformation[scnGullShape[f], RotationTransform[ang, {0, 0}]],
+    TranslationTransform[{x, y}]]]];
+
+(* ---------- The whole backdrop ---------- *)
+(* dim -> True darkens the middle so text stays readable on non-menu screens *)
+scnBackdrop[dim_, content_] := Graphics[{
+   EdgeForm[None],
+   scnSky, scnStars, scnClouds, scnSun, scnSea, scnGlint, scnShip, scnWaves,
+   scnSand, scnPalms, scnBeach,
+   If[TrueQ[dim], scnCard, {}],
+   Dynamic[scnGull[], UpdateInterval -> 0.06, SynchronousUpdating -> False],
+   Inset[content, {320, 300}, {Center, Center}]},
+  PlotRange -> {{0, 640}, {0, 600}},
+  ImageSize -> {menuWidth, menuHeight},
+  ImagePadding -> 0,
+  AspectRatio -> Full,
+  Background -> bgColor];
+
+(* ====================================================================== *)
+
 (* Reusable button with hover effect  *)
 SetAttributes[menuButton, HoldRest];
 menuButton[label_String, action_] :=
@@ -238,6 +440,7 @@ c1Resolve[action_String, success_] := (
     c1Effect[action],
     c1Log["Wrong answer! Bones fumbles his " <> action <> " and loses his turn!"]];
   c1State["eDefending"] = False;
+  c1PlayerAnim[action, success];
   Pause[0.9];   (* delay between your move and the enemy's move *)
   If[c1State["ehp"] <= 0, c1Victory[], c1EnemyTurn[]];
   c1State["busy"] = False);
@@ -305,6 +508,7 @@ c1EnemyTurn[] := Module[{m = c1State["intent"], en = c1State["enemy"]["name"],
       (c1State["ehp"] = Min[c1State["emax"], c1State["ehp"] + 8];
        c1Log[en <> " uses " <> m["name"] <> " and heals 8 HP."])
   ];
+  c1EnemyAnim[m["type"], guard];
   c1State["guarding"] = False;
   Which[
     c1State["php"] <= 0, c1Defeat[],
@@ -327,6 +531,158 @@ c1Upgrade[kind_String] := (
   c1State["php"] = Min[c1State["pmax"], c1State["php"] + 12];
   c1State["stage"] = c1State["stage"] + 1;
   c1StartFight[]);
+
+(* ---------- Fight animations ---------- *)
+(* Each frame is {playerFx, enemyFx}. Fx = dx (sideways shift), s (scale), glow (colour or None). *)
+c1FxDefault = <|"dx" -> 0, "s" -> 1, "glow" -> None|>;
+c1P[dx_, s_, g_: None] := <|"dx" -> dx, "s" -> s, "glow" -> g|>;
+c1Idle = c1P[0, 1];
+c1Red    = RGBColor[1, 0.25, 0.2];
+c1Orange = RGBColor[1, 0.6, 0.15];
+c1Blue   = RGBColor[0.4, 0.7, 1];
+c1Gray   = GrayLevel[0.7];
+
+(* Plays a list of frames, ~0.05s each, then resets both sprites *)
+c1Anim[frames_List] := (
+  Scan[(c1State["pFx"] = #[[1]]; c1State["eFx"] = #[[2]]; Pause[0.05]) &, frames];
+  c1State["pFx"] = c1FxDefault; c1State["eFx"] = c1FxDefault;);
+
+(* Player moves. Player is on the left, so +dx lunges toward the enemy. *)
+c1PlayerFrames["slash"] := {
+  {c1P[10, 1.05], c1Idle}, {c1P[26, 1.12], c1Idle},
+  {c1P[34, 1.15], c1P[8, 0.92, c1Red]}, {c1P[18, 1.08], c1P[-6, 0.96, c1Red]},
+  {c1Idle, c1P[4, 1, c1Red]}, {c1Idle, c1Idle}};
+c1PlayerFrames["cannon"] := {
+  {c1P[-6, 1.08, c1Orange], c1Idle}, {c1P[-10, 1.15, c1Orange], c1Idle},
+  {c1P[0, 1.15, c1Orange], c1P[12, 0.9, c1Orange]}, {c1P[0, 1.08], c1P[-10, 0.92, c1Orange]},
+  {c1Idle, c1P[8, 0.95, c1Orange]}, {c1Idle, c1P[-5, 1, c1Orange]}, {c1Idle, c1Idle}};
+c1PlayerFrames["guard"] := {
+  {c1P[0, 1.05, c1Blue], c1Idle}, {c1P[0, 1.1, c1Blue], c1Idle}, {c1P[0, 1.15, c1Blue], c1Idle},
+  {c1P[0, 1.1, c1Blue], c1Idle}, {c1P[0, 1.05, c1Blue], c1Idle}, {c1Idle, c1Idle}};
+c1PlayerFrames["rum"] := {
+  {c1P[0, 1.05, palmGreen], c1Idle}, {c1P[0, 1.1, palmGreen], c1Idle}, {c1P[0, 1.15, palmGreen], c1Idle},
+  {c1P[0, 1.1, palmGreen], c1Idle}, {c1P[0, 1.05, palmGreen], c1Idle}, {c1Idle, c1Idle}};
+c1PlayerFrames[_] := {};
+c1FumbleFrames = {
+  {c1P[-8, 0.97, c1Gray], c1Idle}, {c1P[8, 0.97, c1Gray], c1Idle},
+  {c1P[-6, 0.97, c1Gray], c1Idle}, {c1P[6, 0.97, c1Gray], c1Idle}, {c1Idle, c1Idle}};
+
+c1PlayerAnim[action_String, success_] :=
+  c1Anim[If[TrueQ[success], c1PlayerFrames[action], c1FumbleFrames]];
+
+(* Enemy moves. Enemy is on the right, so -dx lunges toward the player. *)
+c1EnemyFrames[type_String, guard_] := With[{hit = If[guard, c1Blue, c1Red]},
+  Switch[type,
+   "attack" | "heavy",
+    Join[
+     {{c1Idle, c1P[8, 1.05]}, {c1Idle, c1P[-14, 1.1]}, {c1Idle, c1P[-28, 1.15]},
+      {c1P[-8, 0.92, hit], c1P[-34, 1.15]}, {c1P[-12, 0.92, hit], c1P[-18, 1.08]},
+      {c1P[-4, 0.97, hit], c1Idle}},
+     If[type === "heavy", {{c1P[8, 0.95, hit], c1Idle}, {c1P[-6, 0.97, hit], c1Idle}}, {}],
+     {{c1Idle, c1Idle}}],
+   "defend",
+    {{c1Idle, c1P[0, 1.05, c1Blue]}, {c1Idle, c1P[0, 1.1, c1Blue]}, {c1Idle, c1P[0, 1.15, c1Blue]},
+     {c1Idle, c1P[0, 1.1, c1Blue]}, {c1Idle, c1P[0, 1.05, c1Blue]}, {c1Idle, c1Idle}},
+   "steal",
+    {{c1Idle, c1P[-14, 1.1]}, {c1Idle, c1P[-30, 1.15]}, {c1P[-8, 0.94, accentColor], c1P[-34, 1.15]},
+     {c1P[-4, 0.97, accentColor], c1P[-14, 1.08]}, {c1Idle, c1Idle}},
+   "heal",
+    {{c1Idle, c1P[0, 1.05, palmGreen]}, {c1Idle, c1P[0, 1.1, palmGreen]}, {c1Idle, c1P[0, 1.15, palmGreen]},
+     {c1Idle, c1P[0, 1.1, palmGreen]}, {c1Idle, c1P[0, 1.05, palmGreen]}, {c1Idle, c1Idle}},
+   _, {}]];
+
+(* Guarded heavy attack = riposte: Bones lunges back and the enemy recoils *)
+c1RiposteFrames = {
+  {c1P[20, 1.1, c1Blue], c1P[10, 0.92, c1Red]}, {c1P[30, 1.15, c1Blue], c1P[-6, 0.95, c1Red]},
+  {c1P[10, 1.05], c1P[4, 1, c1Red]}, {c1Idle, c1Idle}};
+
+c1EnemyAnim[type_String, guard_] :=
+  c1Anim[Join[c1EnemyFrames[type, guard],
+    If[guard && type === "heavy" && c1State["php"] > 0, c1RiposteFrames, {}]]];
+
+(* Sprite wrapper: applies shift, scale and a glow disc behind the sprite *)
+c1AnimSprite[name_String, fx_Association] :=
+  With[{dx = fx["dx"], s = fx["s"], gl = fx["glow"]},
+   Graphics[{
+     If[gl === None, {}, {Opacity[0.35], gl, EdgeForm[None], Disk[{dx, 0}, 44 s]}],
+     Inset[c1Sprite[name], {dx, 0}, {Center, Center}, 80 s]},
+    PlotRange -> {{-85, 85}, {-46, 46}},
+    ImageSize -> {170, 92}, ImagePadding -> 0, AspectRatio -> Full]];(* ---------- Fight animations ---------- *)
+(* Each frame is {playerFx, enemyFx}. Fx = dx (sideways shift), s (scale), glow (colour or None). *)
+c1FxDefault = <|"dx" -> 0, "s" -> 1, "glow" -> None|>;
+c1P[dx_, s_, g_: None] := <|"dx" -> dx, "s" -> s, "glow" -> g|>;
+c1Idle = c1P[0, 1];
+c1Red    = RGBColor[1, 0.25, 0.2];
+c1Orange = RGBColor[1, 0.6, 0.15];
+c1Blue   = RGBColor[0.4, 0.7, 1];
+c1Gray   = GrayLevel[0.7];
+
+(* Plays a list of frames, ~0.05s each, then resets both sprites *)
+c1Anim[frames_List] := (
+  Scan[(c1State["pFx"] = #[[1]]; c1State["eFx"] = #[[2]]; Pause[0.05]) &, frames];
+  c1State["pFx"] = c1FxDefault; c1State["eFx"] = c1FxDefault;);
+
+(* Player moves. Player is on the left, so +dx lunges toward the enemy. *)
+c1PlayerFrames["slash"] := {
+  {c1P[10, 1.05], c1Idle}, {c1P[26, 1.12], c1Idle},
+  {c1P[34, 1.15], c1P[8, 0.92, c1Red]}, {c1P[18, 1.08], c1P[-6, 0.96, c1Red]},
+  {c1Idle, c1P[4, 1, c1Red]}, {c1Idle, c1Idle}};
+c1PlayerFrames["cannon"] := {
+  {c1P[-6, 1.08, c1Orange], c1Idle}, {c1P[-10, 1.15, c1Orange], c1Idle},
+  {c1P[0, 1.15, c1Orange], c1P[12, 0.9, c1Orange]}, {c1P[0, 1.08], c1P[-10, 0.92, c1Orange]},
+  {c1Idle, c1P[8, 0.95, c1Orange]}, {c1Idle, c1P[-5, 1, c1Orange]}, {c1Idle, c1Idle}};
+c1PlayerFrames["guard"] := {
+  {c1P[0, 1.05, c1Blue], c1Idle}, {c1P[0, 1.1, c1Blue], c1Idle}, {c1P[0, 1.15, c1Blue], c1Idle},
+  {c1P[0, 1.1, c1Blue], c1Idle}, {c1P[0, 1.05, c1Blue], c1Idle}, {c1Idle, c1Idle}};
+c1PlayerFrames["rum"] := {
+  {c1P[0, 1.05, palmGreen], c1Idle}, {c1P[0, 1.1, palmGreen], c1Idle}, {c1P[0, 1.15, palmGreen], c1Idle},
+  {c1P[0, 1.1, palmGreen], c1Idle}, {c1P[0, 1.05, palmGreen], c1Idle}, {c1Idle, c1Idle}};
+c1PlayerFrames[_] := {};
+c1FumbleFrames = {
+  {c1P[-8, 0.97, c1Gray], c1Idle}, {c1P[8, 0.97, c1Gray], c1Idle},
+  {c1P[-6, 0.97, c1Gray], c1Idle}, {c1P[6, 0.97, c1Gray], c1Idle}, {c1Idle, c1Idle}};
+
+c1PlayerAnim[action_String, success_] :=
+  c1Anim[If[TrueQ[success], c1PlayerFrames[action], c1FumbleFrames]];
+
+(* Enemy moves. Enemy is on the right, so -dx lunges toward the player. *)
+c1EnemyFrames[type_String, guard_] := With[{hit = If[guard, c1Blue, c1Red]},
+  Switch[type,
+   "attack" | "heavy",
+    Join[
+     {{c1Idle, c1P[8, 1.05]}, {c1Idle, c1P[-14, 1.1]}, {c1Idle, c1P[-28, 1.15]},
+      {c1P[-8, 0.92, hit], c1P[-34, 1.15]}, {c1P[-12, 0.92, hit], c1P[-18, 1.08]},
+      {c1P[-4, 0.97, hit], c1Idle}},
+     If[type === "heavy", {{c1P[8, 0.95, hit], c1Idle}, {c1P[-6, 0.97, hit], c1Idle}}, {}],
+     {{c1Idle, c1Idle}}],
+   "defend",
+    {{c1Idle, c1P[0, 1.05, c1Blue]}, {c1Idle, c1P[0, 1.1, c1Blue]}, {c1Idle, c1P[0, 1.15, c1Blue]},
+     {c1Idle, c1P[0, 1.1, c1Blue]}, {c1Idle, c1P[0, 1.05, c1Blue]}, {c1Idle, c1Idle}},
+   "steal",
+    {{c1Idle, c1P[-14, 1.1]}, {c1Idle, c1P[-30, 1.15]}, {c1P[-8, 0.94, accentColor], c1P[-34, 1.15]},
+     {c1P[-4, 0.97, accentColor], c1P[-14, 1.08]}, {c1Idle, c1Idle}},
+   "heal",
+    {{c1Idle, c1P[0, 1.05, palmGreen]}, {c1Idle, c1P[0, 1.1, palmGreen]}, {c1Idle, c1P[0, 1.15, palmGreen]},
+     {c1Idle, c1P[0, 1.1, palmGreen]}, {c1Idle, c1P[0, 1.05, palmGreen]}, {c1Idle, c1Idle}},
+   _, {}]];
+
+(* Guarded heavy attack = riposte: Bones lunges back and the enemy recoils *)
+c1RiposteFrames = {
+  {c1P[20, 1.1, c1Blue], c1P[10, 0.92, c1Red]}, {c1P[30, 1.15, c1Blue], c1P[-6, 0.95, c1Red]},
+  {c1P[10, 1.05], c1P[4, 1, c1Red]}, {c1Idle, c1Idle}};
+
+c1EnemyAnim[type_String, guard_] :=
+  c1Anim[Join[c1EnemyFrames[type, guard],
+    If[guard && type === "heavy" && c1State["php"] > 0, c1RiposteFrames, {}]]];
+
+(* Sprite wrapper: applies shift, scale and a glow disc behind the sprite *)
+c1AnimSprite[name_String, fx_Association] :=
+  With[{dx = fx["dx"], s = fx["s"], gl = fx["glow"]},
+   Graphics[{
+     If[gl === None, {}, {Opacity[0.35], gl, EdgeForm[None], Disk[{dx, 0}, 44 s]}],
+     Inset[c1Sprite[name], {dx, 0}, {Center, Center}, 80 s]},
+    PlotRange -> {{-85, 85}, {-46, 46}},
+    ImageSize -> {170, 92}, ImagePadding -> 0, AspectRatio -> Full]];
 
 (* ---------- UI pieces ---------- *)
 c1BtnFace[label_, en_, hov_, w_, h_] := Framed[
@@ -431,7 +787,7 @@ c1BattleView[] := Module[{e = c1State["enemy"], i = c1State["intent"], cd = c1St
   Column[{
     Row[{
       Pane[Column[{
-         c1Sprite["Bones McGee"],
+         c1AnimSprite["Bones McGee", Lookup[c1State, "pFx", c1FxDefault]],
          Style["Bones McGee", 14, Bold, titleColor],
          c1HPBar[c1State["php"], c1State["pmax"]],
          Style["HP " <> ToString[c1State["php"]] <> "/" <> ToString[c1State["pmax"]], 12, textColor],
@@ -443,7 +799,7 @@ c1BattleView[] := Module[{e = c1State["enemy"], i = c1State["intent"], cd = c1St
          Style["Gold: " <> ToString[c1State["gold"]], 13, accentColor]},
         Alignment -> Center, Spacings -> 0.8], 170, Alignment -> Center],
       Pane[Column[{
-         c1Sprite[e["name"]],
+         c1AnimSprite[e["name"], Lookup[c1State, "eFx", c1FxDefault]],
          Style[e["name"], 14, Bold, titleColor],
          c1HPBar[c1State["ehp"], c1State["emax"]],
          Style["HP " <> ToString[c1State["ehp"]] <> "/" <> ToString[c1State["emax"]], 12, textColor],
@@ -528,7 +884,7 @@ c1View[] := Switch[c1State["phase"],
   _, ""];
 
 (* Dynamic[...] stays unevaluated here, so the menu doesn't track c1State itself *)
-c1Body := Pane[Dynamic[c1View[], TrackedSymbols :> {c1State}], {580, 350}, Alignment -> Center];
+c1Body := Pane[Dynamic[c1View[], TrackedSymbols :> {c1State}], {580, 370}, Alignment -> Center];
 
 playBody := c1Body;
 
@@ -554,39 +910,49 @@ quitGame[] := If[MatchQ[gameNB, _NotebookObject],
 ];
 
 (*  The main menu  *)
+(* Menu content is inset inside the scenery Graphics, so no layering issues. *)
 mainMenu[] :=
   DynamicModule[{screen = "menu"},
-    Panel[
-      Dynamic@Switch[screen,
-        "menu",
-          Column[
-            {
-              Style[gameTitleTop, 50, Bold, accentColor],
-              Style[gameTitleSub, 30, Bold, titleColor],
-              Spacer[25],
-              menuButton["Play",     screen = "play"],
-              menuButton["Tutorial", screen = "tutorial"],
-              menuButton["Options",  screen = "options"],
-              menuButton["Quit",     quitGame[]]
-            },
-            Alignment -> Center,
-            Spacings -> 1.5
-          ],
-        "play",
-          simplePage["PLAY", "Your adventure begins here", playBody, screen = "menu"],
-        "tutorial",
-          simplePage["TUTORIAL", "What makes the Wolfram Language different?", tutorialBody, screen = "menu"],
-        "options",
-          simplePage["OPTIONS", "Tweak your ship", optionsBody, screen = "menu"]
+    Framed[
+      Dynamic[
+        scnBackdrop[screen =!= "menu",
+          Pane[
+            Switch[screen,
+              "menu",
+                Column[
+                  {
+                    Style[gameTitleTop, 50, Bold, accentColor],
+                    Style[gameTitleSub, 30, Bold, titleColor],
+                    Spacer[25],
+                    menuButton["Play",     screen = "play"],
+                    menuButton["Tutorial", screen = "tutorial"],
+                    menuButton["Options",  screen = "options"],
+                    menuButton["Quit",     quitGame[]]
+                  },
+                  Alignment -> Center,
+                  Spacings -> 1.5
+                ],
+              "play",
+                simplePage["PLAY", "Your adventure begins here", playBody, screen = "menu"],
+              "tutorial",
+                simplePage["TUTORIAL", "What makes the Wolfram Language different?", tutorialBody, screen = "menu"],
+              "options",
+                simplePage["OPTIONS", "Tweak your ship", optionsBody, screen = "menu"]
+            ],
+            {menuWidth, menuHeight},
+            Alignment -> Center
+          ]
+        ]
       ],
       Background -> bgColor,
-      ImageSize -> {menuWidth, menuHeight},
-      Alignment -> Center,
-      FrameMargins -> 30
+      FrameStyle -> Directive[Thickness[2], btnFrame],
+      FrameMargins -> 0,
+      RoundingRadius -> 0
     ]
   ];
 
 (*  Launch it  *)
+gullT0 = AbsoluteTime[];   (* restart the seagull timer right at launch *)
 gameNB = CreateDocument[mainMenu[],
   WindowTitle -> gameTitle,
   WindowSize -> All,
